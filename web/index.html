@@ -65,10 +65,11 @@
     }
 
     // WebSocket 连接
-    const ws = new WebSocket('ws://192.168.1.17:8000/ws/subtitles');
+    let ws = new WebSocket('ws://192.168.1.17:8000/ws/subtitles');
 
     ws.onopen = () => {
         console.log('WebSocket 连接已建立');
+
     };
 
     // 处理视频文件上传
@@ -105,13 +106,15 @@
                     const chunk = reader.result; // ArrayBuffer
                     if (startTime !== lastStartTime) {
                         lastStartTime = startTime; // 更新上次发送的开始时间点
+                        console.log(`发送 seek changed: ${startTime}s`);
                         ws.send(JSON.stringify({type: 'seek', time: startTime})); // 通知后端新的时间点
                     }
 
                     ws.send(chunk); // 发送分片
-                    // console.log(`发送分片: ${currentOffset} - ${currentOffset + chunk.byteLength}, 时间: ${startTime}s`);
+                    console.log(`发送分片: ${currentOffset} - ${currentOffset + chunk.byteLength}, 时间: ${startTime}s`);
                     currentOffset += chunk.byteLength;
-
+                    // 等待 5 秒
+                    await new Promise(resolve => setTimeout(resolve, 5000));
                     if (currentOffset < file.size) {
                         // 继续发送下一片
                         sendNextChunk();
@@ -140,12 +143,21 @@
                 if (newTime !== currentTime) {
                     console.log(`视频进度条拖动到: ${newTime}s`);
                     currentTime = newTime;
-                    // 清空现有字幕
-                    if (subtitleTrack) {
-                        while (subtitleTrack.cues && subtitleTrack.cues.length > 0) {
-                            subtitleTrack.removeCue(subtitleTrack.cues[0]);
-                        }
-                    }
+                    // 关闭现有 WebSocket 连接
+                    // // if (ws !== null) {
+                    // //     console.log('关闭现有 WebSocket 连接', ws.readyState);
+                    // //     ws.close();
+                    // // }
+                    //
+                    //
+                    // ws = new WebSocket('ws://192.168.1.17:8000/ws/subtitles');
+
+                    // // 清空现有字幕
+                    // if (subtitleTrack) {
+                    //     while (subtitleTrack.cues && subtitleTrack.cues.length > 0) {
+                    //         subtitleTrack.removeCue(subtitleTrack.cues[0]);
+                    //     }
+                    // }
                     // 从新的时间点开始发送视频
                     sendVideoFromTime(newTime);
                 }

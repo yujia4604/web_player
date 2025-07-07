@@ -20,6 +20,7 @@ os.makedirs("data", exist_ok=True)
 # 全局变量，用于跟踪时间偏移
 global_audio_offset = 0.0
 
+
 def translate_text_local(text, source_lang="日文", target_lang="中文", pre_prompt=None, pre_line=None, post_line=None):
     """调用 xAI Grok API 进行翻译"""
     prompt = (
@@ -29,6 +30,10 @@ def translate_text_local(text, source_lang="日文", target_lang="中文", pre_p
         prompt = pre_prompt + ' ' + prompt
 
     return qwen3_openai_api.chat(prompt)
+
+
+added_segments = []
+
 
 async def process_audio_stream(temp_file_path: str, websocket: WebSocket, segment_duration: int = 10000):
     """处理视频分片的音频并生成字幕，返回新的时间偏移"""
@@ -41,6 +46,9 @@ async def process_audio_stream(temp_file_path: str, websocket: WebSocket, segmen
 
         # 分段处理音频（每段 10 秒）
         for i in range(0, len(audio), segment_duration):
+            # if i in added_segments:
+            #     continue
+            # added_segments.append(i)
             segment = audio[i:i + segment_duration]
             segment_path = f"data/temp_segment_{i}_{int(time.time())}.wav"
             segment.export(segment_path, format="wav")
@@ -52,24 +60,27 @@ async def process_audio_stream(temp_file_path: str, websocket: WebSocket, segmen
             # 累加分段偏移量（基于全局偏移）
             segment_offset = i / 1000.0  # 当前分片内的偏移（秒）
             for seg in segments:
+
                 subtitle = {
                     "type": "subtitle",
                     "start": f"{seg.start + segment_offset + global_audio_offset:.3f}",
                     "end": f"{seg.end + segment_offset + global_audio_offset:.3f}",
                     "text": translate_text_local(seg.text.strip())
                 }
-                print('subtitle', subtitle)
+                print('segment_offset', segment_offset, 'global_audio_offset', global_audio_offset)
+                # print('subtitle', subtitle)
+
                 await websocket.send_text(json.dumps(subtitle))
 
             # 模拟实时处理（根据实际需求调整）
             await asyncio.sleep(0.1)  # 降低延迟
 
         # 更新全局时间偏移
-        global_audio_offset += audio_duration / 1000.0
+        # global_audio_offset += audio_duration / 1000.0
         return global_audio_offset
 
     except CouldntDecodeError as e:
-        print(f"无法解码视频分片: {e}")
+        print(f"无法解码视频分片:")
         await websocket.send_text(json.dumps({"type": "error", "message": "视频分片解码失败，可能数据不完整"}))
         return global_audio_offset
     except Exception as e:
@@ -77,25 +88,29 @@ async def process_audio_stream(temp_file_path: str, websocket: WebSocket, segmen
         await websocket.send_text(json.dumps({"type": "error", "message": str(e)}))
         return global_audio_offset
 
+
 @app.get("/")
 async def get_index():
     return FileResponse("web/index.html")
+
 
 @app.websocket("/ws/subtitles")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
     temp_file_path = "data/temp_video.mp4"  # 临时文件路径
-    global global_audio_offset
-
+    global global_audio_offset, added_segments
+    # 初始化临时文件
+    print('websocket_endpoint 初始化临时文件')
+    if os.path.exists(temp_file_path):
+        os.remove(temp_file_path)
+    added_segments = []  # 清空已处理的分片列表
     try:
-        # 初始化临时文件
-        if os.path.exists(temp_file_path):
-            os.remove(temp_file_path)
 
         while True:
             data = await websocket.receive()
-            if  data["type"] == "websocket.receive":
-                if  "text" in data:
+            print('data type', data["type"])
+            if data["type"] == "websocket.receive":
+                if "text" in data:
                     print('data', data)
                     # 解析文本消息
                     message = json.loads(data["text"])
@@ -109,9 +124,7 @@ async def websocket_endpoint(websocket: WebSocket):
                         seek_time = float(message.get("time", 0))
                         print(f"接收到 seek 事件，时间点: {seek_time}s")
                         global_audio_offset = seek_time  # 更新全局时间偏移
-                        # # 清空临时文件以重新开始处理
-                        if os.path.exists(temp_file_path):
-                            os.remove(temp_file_path)
+
                         await websocket.send_text(
                             json.dumps({"type": "seek_ack", "message": f"已同步到时间点 {seek_time}s"}))
                     else:
@@ -124,6 +137,8 @@ async def websocket_endpoint(websocket: WebSocket):
 
                     # 尝试处理当前分片
                     await process_audio_stream(temp_file_path, websocket)
+            elif data["type"] == "websocket.disconnect":
+                print('WebSocket 断开连接:  ',data)
 
             else:
                 await websocket.send_text(json.dumps({"type": "error", "message": f"不支持的数据类型: {data['type']}"}))
@@ -131,10 +146,12 @@ async def websocket_endpoint(websocket: WebSocket):
         print(f"WebSocket 错误: {e}")
         await websocket.send_text(json.dumps({"type": "error", "message": str(e)}))
     finally:
+        print("finally called")
         # 清理临时文件
         if os.path.exists(temp_file_path):
             os.remove(temp_file_path)
         await websocket.close()
+
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
