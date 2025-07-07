@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>实时字幕视频播放器</title>
+    <link href="https://vjs.zencdn.net/8.10.0/video-js.css" rel="stylesheet"/>
+    <style>
+        .video-js .vjs-text-track-display {
+            bottom: 3em;
+            font-size: 1.2em;
+            color: white;
+            text-shadow: 2px 2px 2px rgba(0, 0, 0, 0.8);
+        }
+    </style>
+</head>
+<body>
+<input type="file" id="video-upload" accept="video/mp4"/>
+<hr>
+<video id="my-video" class="video-js" controls preload="auto" width="800" height="600">
+    <track kind="subtitles" src="/subtitles.vtt" srclang="en" label="英文" default/>
+    <p class="vjs-no-js">请启用 JavaScript 以观看视频。</p>
+</video>
+
+<script src="https://vjs.zencdn.net/8.10.0/video.min.js"></script>
+<script>
+    // 初始化 Video.js 播放器
+    const player = videojs('my-video', {
+        textTrackSettings: {
+            color: 'white',
+            backgroundColor: 'black',
+            fontPercent: 1.2
+        }
+    });
+
+    // 时间戳格式化函数（将秒转换为秒数，用于 VTTCue）
+    function parseTimestamp(seconds) {
+        return parseFloat(seconds.replace(',', '.')); // 处理 6,380 -> 6.380
+    }
+
+    // 获取或创建字幕轨道
+    let subtitleTrack = null;
+    const textTracks = player.textTracks();
+    for (let i = 0; i < textTracks.length; i++) {
+        if (textTracks[i].kind === 'subtitles' && textTracks[i].srclang === 'en') {
+            subtitleTrack = textTracks[i];
+            break;
+        }
+    }
+
+    // 如果没有找到字幕轨道，动态添加一个本地字幕轨道
+    if (!subtitleTrack) {
+        try {
+            subtitleTrack = player.addTextTrack('subtitles', '英文', 'en');
+            console.log('字幕轨道创建成功:', subtitleTrack);
+        } catch (error) {
+            console.error('创建字幕轨道失败:', error);
+        }
+    }
+
+    // 确保字幕轨道显示
+    if (subtitleTrack) {
+        subtitleTrack.mode = 'showing';
+    } else {
+        console.error('字幕轨道初始化失败');
+    }
+
+    // WebSocket 连接
+    const ws = new WebSocket('ws://192.168.1.17:8000/ws/subtitles');
+
+    ws.onopen = () => {
+        console.log('WebSocket 连接已建立');
+    };
+
+    // 处理视频文件上传
+    const videoUpload = document.getElementById('video-upload');
+    let currentTime = 0; // 记录当前视频时间点
+    let lastStartTime = -1; // 记录上次发送的开始时间点
+    videoUpload.addEventListener('change', async (event) => {
+        const file = event.target.files[0];
+        if (file) {
+            // 设置视频播放器源为用户上传的文件
+            const videoUrl = URL.createObjectURL(file);
+            player.src({src: videoUrl, type: file.type || 'video/mp4'});
+            player.load(); // 确保播放器加载新视频
+            console.log('视频源已设置为:', videoUrl);
+
+            // 分片发送视频文件
+            const chunkSize = 1024 * 1024; // 每片 1MB
+            const reader = new FileReader();
+
+            const sendVideoFromTime = (startTime) => {
+                // 计算起始字节（假设视频比特率均匀，近似计算）
+                const videoDuration = player.duration() || 0; // 视频总时长（秒）
+                const fileSize = file.size; // 文件总大小（字节）
+                const bytesPerSecond = videoDuration ? fileSize / videoDuration : 0;
+                const offset = Math.floor(startTime * bytesPerSecond); // 起始字节位置
+                let currentOffset = offset;
+
+                const sendNextChunk = () => {
+                    const slice = file.slice(currentOffset, currentOffset + chunkSize);
+                    reader.readAsArrayBuffer(slice);
+                };
+
+                reader.onload = async () => {
+                    const chunk = reader.result; // ArrayBuffer
+                    if (startTime !== lastStartTime) {
+                        lastStartTime = startTime; // 更新上次发送的开始时间点
+                        ws.send(JSON.stringify({type: 'seek', time: startTime})); // 通知后端新的时间点
+                    }
+
+                    ws.send(chunk); // 发送分片
+                    // console.log(`发送分片: ${currentOffset} - ${currentOffset + chunk.byteLength}, 时间: ${startTime}s`);
+                    currentOffset += chunk.byteLength;
+
+                    if (currentOffset < file.size) {
+                        // 继续发送下一片
+                        sendNextChunk();
+                    } else {
+                        // 发送完成标志
+                        ws.send(JSON.stringify({type: 'end'}));
+                        console.log('视频文件分片发送完成');
+                    }
+                };
+
+                reader.onerror = (error) => {
+                    console.error('读取视频文件分片失败:', error);
+                };
+
+                // 开始发送从指定时间点的分片
+                sendNextChunk();
+            };
+
+            // 初次上传时从头开始发送
+            sendVideoFromTime(0);
+
+            // 监听进度条拖动事件
+            player.on('seeking', () => {
+                console.log(`seeking called`);
+                const newTime = player.currentTime();
+                if (newTime !== currentTime) {
+                    console.log(`视频进度条拖动到: ${newTime}s`);
+                    currentTime = newTime;
+                    // 清空现有字幕
+                    if (subtitleTrack) {
+                        while (subtitleTrack.cues && subtitleTrack.cues.length > 0) {
+                            subtitleTrack.removeCue(subtitleTrack.cues[0]);
+                        }
+                    }
+                    // 从新的时间点开始发送视频
+                    sendVideoFromTime(newTime);
+                }
+            });
+        }
+    });
+
+    ws.onmessage = (event) => {
+        const subtitleData = JSON.parse(event.data);
+        console.log('Received subtitle data:', subtitleData); // 调试输出
+        const textTracks = player.textTracks();
+        for (let i = 0; i < textTracks.length; i++) {
+            if (textTracks[i].kind === 'subtitles' && textTracks[i].language === 'en') {
+                subtitleTrack = textTracks[i];
+                break;
+            }
+        }
+        if (!subtitleTrack) {
+            try {
+                subtitleTrack = player.addTextTrack('subtitles', '英文', 'en');
+                console.log('字幕轨道创建成功:', subtitleTrack);
+            } catch (error) {
+                console.error('创建字幕轨道失败:', error);
+            }
+        }
+        if (subtitleData.type === 'subtitle' && subtitleTrack) {
+            // 解析时间戳
+            const start = parseTimestamp(subtitleData.start);
+            const end = parseTimestamp(subtitleData.end);
+            const text = subtitleData.text.trim();
+
+            // 创建新的 VTTCue
+            try {
+                const cue = new VTTCue(start, end, text);
+                // 添加新的 cue 到字幕轨道
+                subtitleTrack.addCue(cue);
+                console.log('Added cue:', {start, end, text});
+            } catch (error) {
+                console.error('添加字幕 cue 失败:', error);
+            }
+
+            subtitleTrack.mode = 'showing';
+        }
+    };
+
+    ws.onclose = () => {
+        console.log('WebSocket 连接已关闭');
+    };
+
+    ws.onerror = (error) => {
+        console.error('WebSocket 错误:', error);
+    };
+</script>
+</body>
+</html>
