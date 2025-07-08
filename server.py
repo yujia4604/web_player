@@ -23,11 +23,11 @@ os.makedirs("data", exist_ok=True)
 global_audio_offset = 0.0
 
 
-def translate_text_local(text, source_lang="日文", target_lang="中文", pre_prompt=None, pre_line=None, post_line=None):
+def translate_text_local(text, source_lang="", target_lang="中文", pre_prompt=None, pre_line=None, post_line=None):
     """调用 xAI Grok API 进行翻译"""
     prompt = (
-        f"将下面的这句由 {source_lang} 翻译为 {target_lang}, 保持原文的语义、语气和风格,直接给出最优的翻译结果,不要在翻译结果后面添加任何注释内容,除了翻译结果不要任何多余的内容,包括解释、注释、说明等,"
-        f"不要添加任何注释内容,翻译结果保持一行,不要添加换行符,如果无法翻译则保留英文原文\n {text}")
+        f"将下面的这句翻译为 {target_lang}, 保持原文的语义、语气和风格,直接给出最优的翻译结果,不要在翻译结果后面添加任何注释内容,除了翻译结果不要任何多余的内容,包括解释、注释、说明等,"
+        f"不要添加任何注释内容,翻译结果保持一行,不要添加换行符,如果无法翻译则保留原文\n {text}")
     if pre_prompt:
         prompt = pre_prompt + ' ' + prompt
 
@@ -65,12 +65,15 @@ async def process_audio_stream(temp_file_path: str, websocket: WebSocket, segmen
             segment.export(segment_path, format="wav")
 
             # 使用 faster-whisper 转录
-            segments, _ = model.transcribe(segment_path, language="ja")
+            segments, _ = model.transcribe(segment_path)
             os.remove(segment_path)
 
             # 累加分段偏移量（基于全局偏移）
             segment_offset = i / 1000.0  # 当前分片内的偏移（秒）
             for seg in segments:
+                if session_id != current_session_id:
+                    print(f"Session {session_id}: 已取消，跳过分片处理")
+                    return global_audio_offset
                 subtitle = {
                     "type": "subtitle",
                     "start": f"{seg.start + segment_offset :.3f}",
@@ -78,7 +81,7 @@ async def process_audio_stream(temp_file_path: str, websocket: WebSocket, segmen
                     "text": translate_text_local(seg.text.strip())
                 }
                 # print('segment_offset', segment_offset, 'global_audio_offset', global_audio_offset)
-                print('subtitle', subtitle)
+                print('subtitle', subtitle, 'session_id', session_id)
 
                 await websocket.send_text(json.dumps(subtitle))
 

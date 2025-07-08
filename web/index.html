@@ -15,19 +15,23 @@
             flex-direction: column;
             font-family: Arial, sans-serif;
         }
+
         .video-js .vjs-text-track-display {
             bottom: 3em;
             font-size: 1.2em;
             color: white;
             text-shadow: 2px 2px 2px rgba(0, 0, 0, 0.8);
         }
+
         #video-upload-container {
             text-align: center;
             margin: 20px 0;
         }
+
         #video-upload {
             display: none;
         }
+
         .upload-button {
             display: inline-flex;
             align-items: center;
@@ -39,20 +43,25 @@
             font-size: 16px;
             transition: background-color 0.3s;
         }
+
         .upload-button:hover {
             background-color: #0056b3;
         }
+
         .upload-icon {
             margin-right: 8px;
             font-size: 20px;
         }
+
         #my-video {
             display: none;
             margin: 20px auto;
         }
+
         #my-video.show {
             display: block;
         }
+
         hr {
             width: 80%;
             margin: 20px auto;
@@ -133,14 +142,14 @@
             console.log('Received subtitle data:', subtitleData);
             const textTracks = player.textTracks();
             for (let i = 0; i < textTracks.length; i++) {
-                if (textTracks[i].kind === 'subtitles' && textTracks[i].language === 'en') {
+                if (textTracks[i].kind === 'subtitles' && textTracks[i].language === 'zh') {
                     subtitleTrack = textTracks[i];
                     break;
                 }
             }
             if (!subtitleTrack) {
                 try {
-                    subtitleTrack = player.addTextTrack('subtitles', '英文', 'en');
+                    subtitleTrack = player.addTextTrack('subtitles', '中文', 'zh');
                     console.log('字幕轨道创建成功:', subtitleTrack);
                 } catch (error) {
                     console.error('创建字幕轨道失败:', error);
@@ -154,7 +163,7 @@
                 try {
                     const cue = new VTTCue(start, end, text);
                     subtitleTrack.addCue(cue);
-                    console.log('Added cue:', { start, end, text });
+                    console.log('Added cue:', {start, end, text});
                 } catch (error) {
                     console.error('添加字幕 cue 失败:', error);
                 }
@@ -195,9 +204,18 @@
             // 暂停播放器直到收到字幕
             player.pause();
             isWaitingForSubtitles = true;
-
+            if (ws && ws.readyState !== WebSocket.CLOSED && ws.readyState !== WebSocket.CLOSING) {
+                console.log('关闭现有 WebSocket 连接', ws.readyState);
+                ws.close();
+            }
+            if (subtitleTrack) {
+                while (subtitleTrack.cues && subtitleTrack.cues.length > 0) {
+                    subtitleTrack.removeCue(subtitleTrack.cues[0]);
+                }
+            }
             // 初始化 WebSocket
             ws = setupWebSocket();
+
 
             // 分片发送视频文件
             const chunkSize = 1024 * 1024 * 60; // 每片 60MB
