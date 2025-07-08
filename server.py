@@ -48,15 +48,15 @@ async def process_audio_stream(temp_file_path: str, websocket: WebSocket, segmen
         audio_duration = len(audio)  # 音频时长（毫秒）
         print('audio_duration', audio_duration, 'session_id', session_id)
         if audio_duration and audio_duration / 1000 < global_audio_offset:
-            print(
-                f"Session {session_id}: 当前音频时长 {audio_duration / 1000:.2f}s 小于全局偏移 {global_audio_offset:.2f}s，跳过处理")
+            # print(
+            #     f"Session {session_id}: 当前音频时长 {audio_duration / 1000:.2f}s 小于全局偏移 {global_audio_offset:.2f}s，跳过处理")
             return global_audio_offset
         # 分段处理音频（每段 10 秒）
         for i in range(0, len(audio), segment_duration):
             if i in added_segments:
                 continue
             if i / 1000 < global_audio_offset:
-                print(f"Session {session_id[-8:]}: 跳过已处理的分片 {i / 1000:.2f}s")
+                # print(f"Session {session_id[-8:]}: 跳过已处理的分片 {i / 1000:.2f}s")
                 added_segments.append(i)
                 continue
             added_segments.append(i)
@@ -141,16 +141,6 @@ async def websocket_endpoint(websocket: WebSocket):
                     elif message.get("type") == "seek":
                         # 处理 seek 事件
                         seek_time = float(message.get("time", 0))
-                        print(f"Session {session_id}: 接收到 seek 事件，时间点: {seek_time}s")
-                        print(f"Session {session_id}: 接收到 seek 事件，时间点: {seek_time}s")
-                        print(f"Session {session_id}: 接收到 seek 事件，时间点: {seek_time}s")
-                        print(f"Session {session_id}: 接收到 seek 事件，时间点: {seek_time}s")
-                        print(f"Session {session_id}: 接收到 seek 事件，时间点: {seek_time}s")
-                        print(f"Session {session_id}: 接收到 seek 事件，时间点: {seek_time}s")
-                        print(f"Session {session_id}: 接收到 seek 事件，时间点: {seek_time}s")
-                        print(f"Session {session_id}: 接收到 seek 事件，时间点: {seek_time}s")
-                        print(f"Session {session_id}: 接收到 seek 事件，时间点: {seek_time}s")
-                        print(f"Session {session_id}: 接收到 seek 事件，时间点: {seek_time}s")
                         print(f"Session {session_id}: 接收到 seek 事件，时间点: {seek_time}s")
                         global_audio_offset = seek_time  # 更新全局时间偏移
 
