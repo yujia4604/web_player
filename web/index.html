@@ -65,17 +65,69 @@
     }
 
     // WebSocket 连接
-    let ws = new WebSocket('ws://192.168.1.17:8000/ws/subtitles');
+    let ws = null;
+    let currentTime = 0; // 记录当前视频时间点
+    let lastStartTime = -1; // 记录上次发送的开始时间点
 
-    ws.onopen = () => {
-        console.log('WebSocket 连接已建立');
+    // 定义 WebSocket 事件处理程序
+    function setupWebSocket() {
+        ws = new WebSocket('ws://192.168.1.17:8000/ws/subtitles');
 
-    };
+        ws.onopen = () => {
+            console.log('WebSocket 连接已建立');
+        };
+
+        ws.onmessage = (event) => {
+            const subtitleData = JSON.parse(event.data);
+            console.log('Received subtitle data:', subtitleData); // 调试输出
+            const textTracks = player.textTracks();
+            for (let i = 0; i < textTracks.length; i++) {
+                if (textTracks[i].kind === 'subtitles' && textTracks[i].language === 'en') {
+                    subtitleTrack = textTracks[i];
+                    break;
+                }
+            }
+            if (!subtitleTrack) {
+                try {
+                    subtitleTrack = player.addTextTrack('subtitles', '英文', 'en');
+                    console.log('字幕轨道创建成功:', subtitleTrack);
+                } catch (error) {
+                    console.error('创建字幕轨道失败:', error);
+                }
+            }
+            if (subtitleData.type === 'subtitle' && subtitleTrack) {
+                // 解析时间戳
+                const start = parseTimestamp(subtitleData.start);
+                const end = parseTimestamp(subtitleData.end);
+                const text = subtitleData.text.trim();
+
+                // 创建新的 VTTCue
+                try {
+                    const cue = new VTTCue(start, end, text);
+                    // 添加新的 cue 到字幕轨道
+                    subtitleTrack.addCue(cue);
+                    console.log('Added cue:', { start, end, text });
+                } catch (error) {
+                    console.error('添加字幕 cue 失败:', error);
+                }
+
+                subtitleTrack.mode = 'showing';
+            }
+        };
+
+        ws.onclose = () => {
+            console.log('WebSocket 连接已关闭');
+        };
+
+        ws.onerror = (error) => {
+            console.error('WebSocket 错误:', error);
+        };
+
+        return ws;
+    }
 
     // 处理视频文件上传
     const videoUpload = document.getElementById('video-upload');
-    let currentTime = 0; // 记录当前视频时间点
-    let lastStartTime = -1; // 记录上次发送的开始时间点
     videoUpload.addEventListener('change', async (event) => {
         const file = event.target.files[0];
         if (file) {
@@ -85,16 +137,33 @@
             player.load(); // 确保播放器加载新视频
             console.log('视频源已设置为:', videoUrl);
 
+            // 初始化 WebSocket
+            ws = setupWebSocket();
+
             // 分片发送视频文件
-            const chunkSize = 1024 * 1024; // 每片 1MB
+            const chunkSize = 1024 * 1024*60; // 每片 1MB
             const reader = new FileReader();
 
-            const sendVideoFromTime = (startTime) => {
+            const sendVideoFromTime = async (startTime) => {
+                // 等待 WebSocket 连接建立
+                if (ws.readyState !== WebSocket.OPEN) {
+                    await new Promise((resolve) => {
+                        ws.onopen = () => {
+                            console.log('WebSocket 连接已就绪');
+                            resolve();
+                        };
+                        ws.onerror = () => {
+                            console.error('WebSocket 连接失败');
+                            resolve(); // 即使失败也继续，避免阻塞
+                        };
+                    });
+                }
+
                 // 计算起始字节（假设视频比特率均匀，近似计算）
                 const videoDuration = player.duration() || 0; // 视频总时长（秒）
                 const fileSize = file.size; // 文件总大小（字节）
                 const bytesPerSecond = videoDuration ? fileSize / videoDuration : 0;
-                const offset = Math.floor(startTime * bytesPerSecond); // 起始字节位置
+                const offset = 0// 起始字节位置
                 let currentOffset = offset;
 
                 const sendNextChunk = () => {
@@ -104,24 +173,27 @@
 
                 reader.onload = async () => {
                     const chunk = reader.result; // ArrayBuffer
-                    if (startTime !== lastStartTime) {
+                    if (startTime !== lastStartTime && ws.readyState === WebSocket.OPEN) {
                         lastStartTime = startTime; // 更新上次发送的开始时间点
                         console.log(`发送 seek changed: ${startTime}s`);
                         ws.send(JSON.stringify({type: 'seek', time: startTime})); // 通知后端新的时间点
                     }
-
-                    ws.send(chunk); // 发送分片
-                    console.log(`发送分片: ${currentOffset} - ${currentOffset + chunk.byteLength}, 时间: ${startTime}s`);
-                    currentOffset += chunk.byteLength;
-                    // 等待 5 秒
-                    await new Promise(resolve => setTimeout(resolve, 5000));
-                    if (currentOffset < file.size) {
-                        // 继续发送下一片
-                        sendNextChunk();
+                    if (ws.readyState === WebSocket.OPEN) {
+                        ws.send(chunk); // 发送分片
+                        console.log(`发送分片: ${currentOffset} - ${currentOffset + chunk.byteLength}, 时间: ${startTime}s`);
+                        currentOffset += chunk.byteLength;
+                        // 等待 5 秒
+                        // await new Promise(resolve => setTimeout(resolve, 1000));
+                        if (currentOffset < file.size) {
+                            // 继续发送下一片
+                            sendNextChunk();
+                        } else {
+                            // 发送完成标志
+                            ws.send(JSON.stringify({type: 'end'}));
+                            console.log('视频文件分片发送完成');
+                        }
                     } else {
-                        // 发送完成标志
-                        ws.send(JSON.stringify({type: 'end'}));
-                        console.log('视频文件分片发送完成');
+                        console.warn('WebSocket 未连接，停止发送分片');
                     }
                 };
 
@@ -134,82 +206,34 @@
             };
 
             // 初次上传时从头开始发送
-            sendVideoFromTime(0);
+            await sendVideoFromTime(0);
 
             // 监听进度条拖动事件
-            player.on('seeking', () => {
-                console.log(`seeking called`);
+            player.on('seeking', async () => {
+                console.log('seeking called');
                 const newTime = player.currentTime();
                 if (newTime !== currentTime) {
                     console.log(`视频进度条拖动到: ${newTime}s`);
                     currentTime = newTime;
                     // 关闭现有 WebSocket 连接
-                    // // if (ws !== null) {
-                    // //     console.log('关闭现有 WebSocket 连接', ws.readyState);
-                    // //     ws.close();
-                    // // }
-                    //
-                    //
-                    // ws = new WebSocket('ws://192.168.1.17:8000/ws/subtitles');
-
-                    // // 清空现有字幕
-                    // if (subtitleTrack) {
-                    //     while (subtitleTrack.cues && subtitleTrack.cues.length > 0) {
-                    //         subtitleTrack.removeCue(subtitleTrack.cues[0]);
-                    //     }
-                    // }
+                    if (ws && ws.readyState !== WebSocket.CLOSED && ws.readyState !== WebSocket.CLOSING) {
+                        console.log('关闭现有 WebSocket 连接', ws.readyState);
+                        ws.close();
+                    }
+                    // 清空现有字幕
+                    if (subtitleTrack) {
+                        while (subtitleTrack.cues && subtitleTrack.cues.length > 0) {
+                            subtitleTrack.removeCue(subtitleTrack.cues[0]);
+                        }
+                    }
+                    // 创建新的 WebSocket 连接
+                    ws = setupWebSocket();
                     // 从新的时间点开始发送视频
-                    sendVideoFromTime(newTime);
+                    await sendVideoFromTime(newTime);
                 }
             });
         }
     });
-
-    ws.onmessage = (event) => {
-        const subtitleData = JSON.parse(event.data);
-        console.log('Received subtitle data:', subtitleData); // 调试输出
-        const textTracks = player.textTracks();
-        for (let i = 0; i < textTracks.length; i++) {
-            if (textTracks[i].kind === 'subtitles' && textTracks[i].language === 'en') {
-                subtitleTrack = textTracks[i];
-                break;
-            }
-        }
-        if (!subtitleTrack) {
-            try {
-                subtitleTrack = player.addTextTrack('subtitles', '英文', 'en');
-                console.log('字幕轨道创建成功:', subtitleTrack);
-            } catch (error) {
-                console.error('创建字幕轨道失败:', error);
-            }
-        }
-        if (subtitleData.type === 'subtitle' && subtitleTrack) {
-            // 解析时间戳
-            const start = parseTimestamp(subtitleData.start);
-            const end = parseTimestamp(subtitleData.end);
-            const text = subtitleData.text.trim();
-
-            // 创建新的 VTTCue
-            try {
-                const cue = new VTTCue(start, end, text);
-                // 添加新的 cue 到字幕轨道
-                subtitleTrack.addCue(cue);
-                console.log('Added cue:', {start, end, text});
-            } catch (error) {
-                console.error('添加字幕 cue 失败:', error);
-            }
-
-            subtitleTrack.mode = 'showing';
-        }
-    };
-
-    ws.onclose = () => {
-        console.log('WebSocket 连接已关闭');
-    };
-
-    ws.onerror = (error) => {
-        console.error('WebSocket 错误:', error);
-    };
 </script>
 </body>
 </html>
