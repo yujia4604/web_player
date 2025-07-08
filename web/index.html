@@ -5,17 +5,69 @@
     <title>实时字幕视频播放器</title>
     <link href="https://vjs.zencdn.net/8.10.0/video-js.css" rel="stylesheet"/>
     <style>
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            background-color: #f0f0f0;
+            flex-direction: column;
+            font-family: Arial, sans-serif;
+        }
         .video-js .vjs-text-track-display {
             bottom: 3em;
             font-size: 1.2em;
             color: white;
             text-shadow: 2px 2px 2px rgba(0, 0, 0, 0.8);
         }
+        #video-upload-container {
+            text-align: center;
+            margin: 20px 0;
+        }
+        #video-upload {
+            display: none;
+        }
+        .upload-button {
+            display: inline-flex;
+            align-items: center;
+            padding: 12px 24px;
+            background-color: #007bff;
+            color: white;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: background-color 0.3s;
+        }
+        .upload-button:hover {
+            background-color: #0056b3;
+        }
+        .upload-icon {
+            margin-right: 8px;
+            font-size: 20px;
+        }
+        #my-video {
+            display: none;
+            margin: 20px auto;
+        }
+        #my-video.show {
+            display: block;
+        }
+        hr {
+            width: 80%;
+            margin: 20px auto;
+            border: 0;
+            border-top: 1px solid #ccc;
+        }
     </style>
 </head>
 <body>
-<input type="file" id="video-upload" accept="video/mp4"/>
-<hr>
+<div id="video-upload-container">
+    <label for="video-upload" class="upload-button">
+        <span class="upload-icon">📁</span> 上传视频
+    </label>
+    <input type="file" id="video-upload" accept="video/mp4"/>
+</div>
 <video id="my-video" class="video-js" controls preload="auto" width="800" height="600">
     <track kind="subtitles" src="/subtitles.vtt" srclang="en" label="英文" default/>
     <p class="vjs-no-js">请启用 JavaScript 以观看视频。</p>
@@ -131,6 +183,9 @@
     videoUpload.addEventListener('change', async (event) => {
         const file = event.target.files[0];
         if (file) {
+            // 显示视频播放器
+            document.getElementById('my-video').classList.add('show');
+
             // 设置视频播放器源为用户上传的文件
             const videoUrl = URL.createObjectURL(file);
             player.src({src: videoUrl, type: file.type || 'video/mp4'});
@@ -141,7 +196,7 @@
             ws = setupWebSocket();
 
             // 分片发送视频文件
-            const chunkSize = 1024 * 1024*60; // 每片 1MB
+            const chunkSize = 1024 * 1024 * 60; // 每片 60MB
             const reader = new FileReader();
 
             const sendVideoFromTime = async (startTime) => {
@@ -163,7 +218,7 @@
                 const videoDuration = player.duration() || 0; // 视频总时长（秒）
                 const fileSize = file.size; // 文件总大小（字节）
                 const bytesPerSecond = videoDuration ? fileSize / videoDuration : 0;
-                const offset = 0// 起始字节位置
+                const offset = 0; // 起始字节位置
                 let currentOffset = offset;
 
                 const sendNextChunk = () => {
@@ -182,8 +237,6 @@
                         ws.send(chunk); // 发送分片
                         console.log(`发送分片: ${currentOffset} - ${currentOffset + chunk.byteLength}, 时间: ${startTime}s`);
                         currentOffset += chunk.byteLength;
-                        // 等待 5 秒
-                        // await new Promise(resolve => setTimeout(resolve, 1000));
                         if (currentOffset < file.size) {
                             // 继续发送下一片
                             sendNextChunk();
