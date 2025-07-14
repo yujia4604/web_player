@@ -19,7 +19,7 @@ app = FastAPI()
 app.mount("/web", StaticFiles(directory="web"), name="web")
 
 # 初始化 faster-whisper 模型
-model = WhisperModel("model/large-v3", device="cuda", compute_type="int8")
+model = WhisperModel("./whisper-large-v3-turbo", device="cuda", compute_type="int8")
 os.makedirs("data", exist_ok=True)
 
 # 全局变量，用于跟踪时间偏移

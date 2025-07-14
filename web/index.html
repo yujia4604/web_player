@@ -130,7 +130,7 @@
 
     // 定义 WebSocket 事件处理程序
     function setupWebSocket() {
-        ws = new WebSocket('ws://192.168.1.17:8000/ws/subtitles');
+        ws = new WebSocket('ws://127.0.0.1:8000/ws/subtitles');
 
         ws.onopen = () => {
             console.log('WebSocket 连接已建立');
@@ -170,11 +170,11 @@
                 subtitleTrack.mode = 'showing';
 
                 // 当收到字幕时，如果正在等待字幕，则开始播放
-                if (isWaitingForSubtitles) {
-                    isWaitingForSubtitles = false;
-                    player.play();
-                    console.log('字幕收到，开始播放视频');
-                }
+                // if (isWaitingForSubtitles) {
+                //     isWaitingForSubtitles = false;
+                //     player.play();
+                //     console.log('字幕收到，开始播放视频');
+                // }
             }
         };
 
@@ -201,8 +201,8 @@
             console.log('视频源已设置为:', videoUrl);
 
             // 暂停播放器直到收到字幕
-            player.pause();
-            isWaitingForSubtitles = true;
+            // player.pause();
+            // isWaitingForSubtitles = true;
             if (ws && ws.readyState !== WebSocket.CLOSED && ws.readyState !== WebSocket.CLOSING) {
                 console.log('关闭现有 WebSocket 连接', ws.readyState);
                 ws.close();
@@ -279,10 +279,10 @@
 
             // 监听播放按钮点击
             player.on('play', () => {
-                if (isWaitingForSubtitles) {
-                    player.pause(); // 如果还在等待字幕，暂停播放
-                    console.log('等待字幕，暂停播放');
-                }
+                // if (isWaitingForSubtitles) {
+                //     player.pause(); // 如果还在等待字幕，暂停播放
+                //     console.log('等待字幕，暂停播放');
+                // }
             });
 
             // 监听进度条拖动事件
@@ -292,8 +292,8 @@
                 if (newTime !== currentTime) {
                     console.log(`视频进度条拖动到: ${newTime}s`);
                     currentTime = newTime;
-                    player.pause(); // 拖动时暂停播放
-                    isWaitingForSubtitles = true; // 设置等待字幕标志
+                  //  player.pause(); // 拖动时暂停播放
+                    //isWaitingForSubtitles = true; // 设置等待字幕标志
 
                     if (ws && ws.readyState !== WebSocket.CLOSED && ws.readyState !== WebSocket.CLOSING) {
                         console.log('关闭现有 WebSocket 连接', ws.readyState);
