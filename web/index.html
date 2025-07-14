@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <title>实时字幕视频播放器</title>
-    <link href="https://vjs.zencdn.net/8.10.0/video-js.css" rel="stylesheet"/>
+    <link href="web/video-js.css" rel="stylesheet"/>
     <style>
         body {
             display: flex;
@@ -78,11 +78,10 @@
     <input type="file" id="video-upload" accept="video/mp4"/>
 </div>
 <video id="my-video" class="video-js" controls preload="auto" width="800" height="600">
-    <track kind="subtitles" src="/subtitles.vtt" srclang="en" label="英文" default/>
     <p class="vjs-no-js">请启用 JavaScript 以观看视频。</p>
 </video>
 
-<script src="https://vjs.zencdn.net/8.10.0/video.min.js"></script>
+<script src="web/video.min.js"></script>
 <script>
     // 初始化 Video.js 播放器
     const player = videojs('my-video', {
@@ -102,7 +101,7 @@
     let subtitleTrack = null;
     const textTracks = player.textTracks();
     for (let i = 0; i < textTracks.length; i++) {
-        if (textTracks[i].kind === 'subtitles' && textTracks[i].srclang === 'en') {
+        if (textTracks[i].kind === 'subtitles' && textTracks[i].srclang === 'zh') {
             subtitleTrack = textTracks[i];
             break;
         }
@@ -110,7 +109,7 @@
 
     if (!subtitleTrack) {
         try {
-            subtitleTrack = player.addTextTrack('subtitles', '英文', 'en');
+            subtitleTrack = player.addTextTrack('subtitles', '中文', 'zh');
             console.log('字幕轨道创建成功:', subtitleTrack);
         } catch (error) {
             console.error('创建字幕轨道失败:', error);
@@ -212,6 +211,7 @@
                 while (subtitleTrack.cues && subtitleTrack.cues.length > 0) {
                     subtitleTrack.removeCue(subtitleTrack.cues[0]);
                 }
+                console.log('清空所有字幕');
             }
             // 初始化 WebSocket
             ws = setupWebSocket();

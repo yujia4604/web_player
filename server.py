@@ -11,12 +11,15 @@ from faster_whisper import WhisperModel
 from pydub import AudioSegment
 from pydub.exceptions import CouldntDecodeError
 import uvicorn
-import qwen3_openai_api
-
+import openai_api,ollama_api
+from fastapi.staticfiles import StaticFiles
 app = FastAPI()
 
+# 挂载静态文件目录
+app.mount("/web", StaticFiles(directory="web"), name="web")
+
 # 初始化 faster-whisper 模型
-model = WhisperModel("large-v3", device="cuda", compute_type="int8")
+model = WhisperModel("model/large-v3", device="cuda", compute_type="int8")
 os.makedirs("data", exist_ok=True)
 
 # 全局变量，用于跟踪时间偏移
@@ -31,7 +34,7 @@ def translate_text_local(text, source_lang="", target_lang="中文", pre_prompt=
     if pre_prompt:
         prompt = pre_prompt + ' ' + prompt
 
-    return qwen3_openai_api.chat(prompt)
+    return ollama_api.chat(prompt)
 
 
 added_segments = []
@@ -155,12 +158,12 @@ async def websocket_endpoint(websocket: WebSocket):
                     if session_id != current_session_id:
                         print(f"Session {session_id}: 已取消，跳过接收数据")
                         break
-
+                    # print('接收到视频数据，保存到临时文件')
                     # 接收分片数据并追加到临时文件
                     with open(temp_file_path, "ab") as f:
                         f.write(data["bytes"])
                     print(
-                        f"Session {session_id[-8:]}: 接收到分片: {os.path.getsize(temp_file_path) / 1024 / 1024} M字节",
+                        f"Session {session_id[-8:]}: 接收到: {os.path.getsize(temp_file_path) / 1024 / 1024} M字节",
                         temp_file_path)
 
                     # 尝试处理当前分片
